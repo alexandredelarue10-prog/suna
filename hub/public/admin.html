@@ -4,6 +4,11 @@
 <body><div class="wrap">
 <div class="head"><h1>Administration</h1><div class="row"><a class="btn ghost" href="/">Portfolio</a><button class="btn ghost" id="out">Déconnexion</button></div></div>
 
+<div class="panel"><h2>Assistant IA</h2><p class="mut" id="ia-info" style="margin:0 0 10px"></p>
+<div id="ia-log" class="ia-log"></div>
+<textarea id="ia-in" placeholder="Pose une question, demande du code, du lore, une annonce, une analyse… (Ctrl+Entrée pour envoyer)" style="min-height:90px"></textarea>
+<div class="row"><button class="btn" id="ia-go">Envoyer</button><button class="btn ghost" id="ia-stop" hidden>Arrêter</button><button class="btn ghost" id="ia-new">Nouvelle conversation</button></div></div>
+
 <div class="panel"><h2>Verrouiller un site</h2><p class="mut" style="margin:0 0 6px">Chaque site se ferme séparément pour tous les visiteurs ; toi, connecté ici, tu gardes l'accès.</p><div id="locks"></div></div>
 
 <div class="panel"><h2>Bandeau d'annonce</h2>
@@ -27,6 +32,7 @@ function charger(){api('/hub/admin/etat').then(e=>{
   $('locks').innerHTML=e.sites.map(s=>`<div style="padding:10px 0;border-bottom:1px solid #ffffff1a"><div class="row"><b style="min-width:180px">${esc(s.nom)}</b><label><input type="checkbox" class="l-on" data-s="${esc(s.id)}" ${s.actif?'checked':''}> Fermé</label></div><textarea class="l-msg" data-s="${esc(s.id)}" maxlength="500" placeholder="Message affiché aux visiteurs (facultatif)">${esc(s.message)}</textarea><div class="row"><button class="btn l-save" data-s="${esc(s.id)}">Enregistrer</button><span class="msg"></span></div></div>`).join('');
   document.querySelectorAll('.l-save').forEach(b=>b.onclick=async()=>{const k=b.dataset.s;await api('/hub/admin/lock/'+k,{actif:document.querySelector('.l-on[data-s="'+k+'"]').checked,message:document.querySelector('.l-msg[data-s="'+k+'"]').value});b.nextElementSibling.textContent='Enregistré.';setTimeout(()=>b.nextElementSibling.textContent='',3000)});
   $('a-actif').checked=e.annonce.actif;$('a-txt').value=e.annonce.texte||'';
+  $('ia-info').innerHTML=e.ia.configure?`Modèle : <b>${esc(e.ia.modele)}</b>. La conversation n'est pas enregistrée ; évite d'y coller des mots de passe ou des tokens.`:'⚠️ Non configuré : crée une clé sur console.anthropic.com puis ajoute-la sur Render dans la variable <b>ANTHROPIC_API_KEY</b>.';
   const c=e.stats.comptes||{};
   $('stats').innerHTML=e.stats.erreur?esc(e.stats.erreur):`<div>Comptes : <b>${c.approuve||0}</b> approuvés · <b>${c.en_attente||0}</b> en attente · <b>${c.refuse||0}</b> refusés</div>
   <table><tr><th>Connecté (session active)</th><th>Dernière activité</th></tr>${(e.stats.sessions||[]).map(s=>`<tr><td>${esc(s.username)}</td><td>${new Date(s.derniere_activite).toLocaleString('fr-FR')}</td></tr>`).join('')||'<tr><td colspan="2">Aucune session active.</td></tr>'}</table>`;
@@ -36,4 +42,29 @@ $('kick').onclick=async()=>{if(!confirm('Déconnecter tous les utilisateurs de p
 $('out').onclick=()=>fetch('/hub/logout',{method:'POST'}).then(()=>location.href='/');
 api('/hub/admin/projets').then(l=>{$('projets').innerHTML=l.map(p=>`<div class="row" style="padding:6px 0"><b>${esc(p.nom)}</b><span class="tag">${p.public===false?'privé':'public'}</span><a href="${esc(p.url)}" style="color:var(--or)">${esc(p.url)}</a></div>`).join('')});
 charger();
+
+// ---- Assistant IA ----
+let iaMsgs=[],iaCtrl=null;
+const rendu=t=>esc(t).replace(/```(?:\w+)?\n?([\s\S]*?)```/g,(m,c)=>'<pre class="code">'+c+'</pre>').replace(/`([^`\n]+)`/g,'<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g,'<b>$1</b>');
+function iaDraw(){const l=$('ia-log');l.innerHTML=iaMsgs.map(m=>`<div class="${m.role==='user'?'msg-u':'msg-a'}">${rendu(m.content)}${m.err?`<div class="err">⚠️ ${esc(m.err)}</div>`:''}</div>`).join('')||'<span class="mut">Aucun message pour le moment.</span>';l.scrollTop=l.scrollHeight}
+async function iaSend(){
+  const t=$('ia-in').value.trim();if(!t||iaCtrl)return;
+  iaMsgs.push({role:'user',content:t});const a={role:'assistant',content:''};iaMsgs.push(a);$('ia-in').value='';iaDraw();
+  iaCtrl=new AbortController();$('ia-stop').hidden=false;$('ia-go').disabled=true;
+  try{
+    const r=await fetch('/hub/admin/ia',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:iaMsgs.slice(0,-1).map(m=>({role:m.role,content:m.content}))}),signal:iaCtrl.signal});
+    if(r.status===401){location.reload();return}
+    if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.error||'Erreur')}
+    const rd=r.body.getReader(),dec=new TextDecoder();let buf='';
+    for(;;){const {done,value}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});let i;
+      while((i=buf.indexOf('\n\n'))>=0){const bloc=buf.slice(0,i);buf=buf.slice(i+2);const l=bloc.split('\n').find(x=>x.startsWith('data: '));if(!l)continue;
+        const d=JSON.parse(l.slice(6));if(d.texte){a.content+=d.texte;iaDraw()}if(d.erreur){a.err=d.erreur;iaDraw()}}}
+  }catch(e){if(e.name!=='AbortError'){a.err=e.message;iaDraw()}}
+  finally{iaCtrl=null;$('ia-stop').hidden=true;$('ia-go').disabled=false;if(!a.content&&!a.err)iaMsgs.pop();iaDraw()}
+}
+$('ia-go').onclick=iaSend;
+$('ia-in').onkeydown=e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();iaSend()}};
+$('ia-stop').onclick=()=>iaCtrl&&iaCtrl.abort();
+$('ia-new').onclick=()=>{if(iaCtrl)iaCtrl.abort();iaMsgs=[];iaDraw()};
+iaDraw();
 </script></body></html>
