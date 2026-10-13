@@ -34,7 +34,7 @@ function charger(){api('/hub/admin/etat').then(e=>{
   $('a-actif').checked=e.annonce.actif;$('a-txt').value=e.annonce.texte||'';
   $('ia-info').innerHTML=e.ia.fournisseur==='anthropic'?`Claude (modèle <b>${esc(e.ia.modele)}</b>). La conversation n'est pas enregistrée ; évite d'y coller des mots de passe ou des tokens.`
     :e.ia.fournisseur==='compatible'?`Service IA compatible OpenAI (modèle <b>${esc(e.ia.modele||'?')}</b>). Évite d'y coller des mots de passe ou des tokens.`
-    :`Service gratuit sans clé (Pollinations, modèle <b>${esc(e.ia.modele)}</b>) : moins puissant que Claude, limité en débit, et la conversation passe par un service tiers. Pour plus de puissance, ajoute <b>ANTHROPIC_API_KEY</b> sur Render.`;
+    :`⚠️ Aucune IA configurée. Le service sans clé n'existe plus : Pollinations exige maintenant une clé, gratuite. Crée-en une sur <b>enter.pollinations.ai</b>, puis ajoute sur Render <b>AI_API_KEY</b> (ta clé sk_…), <b>AI_BASE_URL</b>=https://gen.pollinations.ai/v1 et <b>AI_MODEL</b>=openai. Autres options : Groq, OpenRouter, Gemini ou <b>ANTHROPIC_API_KEY</b>.`;
   const c=e.stats.comptes||{};
   $('stats').innerHTML=e.stats.erreur?esc(e.stats.erreur):`<div>Comptes : <b>${c.approuve||0}</b> approuvés · <b>${c.en_attente||0}</b> en attente · <b>${c.refuse||0}</b> refusés</div>
   <table><tr><th>Connecté (session active)</th><th>Dernière activité</th></tr>${(e.stats.sessions||[]).map(s=>`<tr><td>${esc(s.username)}</td><td>${new Date(s.derniere_activite).toLocaleString('fr-FR')}</td></tr>`).join('')||'<tr><td colspan="2">Aucune session active.</td></tr>'}</table>`;

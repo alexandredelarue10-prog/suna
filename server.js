@@ -138,6 +138,7 @@ app.post('/hub/admin/ia', requireHub, express.json({ limit: '2mb' }), async (req
     if (!r.ok) {
       let msg = 'Erreur ' + r.status;
       try { const d = await r.json(); msg += ' : ' + ((d.error && (d.error.message || d.error)) || d.message || ''); } catch (e) { /* corps non JSON */ }
+      if (f.type === 'gratuit' && (r.status === 401 || r.status === 403)) msg = "Le service gratuit exige désormais une clé (gratuite) : crée-en une sur enter.pollinations.ai, puis ajoute sur Render AI_API_KEY (ta clé sk_…), AI_BASE_URL=https://gen.pollinations.ai/v1 et AI_MODEL=openai.";
       send({ erreur: msg }); return res.end();
     }
     if (f.type !== 'anthropic' && !(r.headers.get('content-type') || '').includes('text/event-stream')) { // réponse non streamée
