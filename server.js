@@ -98,31 +98,52 @@ async function contexteAdmin() {
   const sites = SITES.map((id) => `${id}: ${reglages.locks[id] && reglages.locks[id].actif ? 'FERMÉ' : 'ouvert'}`).join(' ; ');
   return `État actuel (lecture seule)\nSites — ${sites}\nBandeau d'annonce — ${reglages.annonce.actif ? 'actif : « ' + reglages.annonce.texte + ' »' : 'inactif'}\nComptes police-suna — ${cnt(pol)}\nComptes dojo de fuinjutsu — ${cnt(doj)}\nComptes dojo des sensoriels — ${cnt(sen)}`;
 }
+// Fournisseur d'IA : Claude si une clé Anthropic existe ; sinon un service compatible OpenAI (Groq, OpenRouter, Gemini…) ;
+// sinon le service gratuit sans clé (Pollinations), moins puissant et limité en débit.
+function fournisseurIA() {
+  if (process.env.ANTHROPIC_API_KEY) return { type: 'anthropic', modele: process.env.ADMIN_AI_MODEL || IA_MODELE_DEFAUT };
+  if (process.env.AI_API_KEY && process.env.AI_BASE_URL) return { type: 'compatible', modele: process.env.AI_MODEL || '', base: process.env.AI_BASE_URL, key: process.env.AI_API_KEY };
+  return { type: 'gratuit', modele: process.env.AI_MODEL || 'openai', base: process.env.AI_FREE_BASE_URL || 'https://gen.pollinations.ai/v1' };
+}
 app.post('/hub/admin/ia', requireHub, express.json({ limit: '2mb' }), async (req, res) => {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) return res.status(503).json({ error: "Clé API non configurée : ajoute la variable ANTHROPIC_API_KEY sur Render." });
+  const f = fournisseurIA();
+  if (f.type === 'compatible' && !f.modele) return res.status(503).json({ error: 'Modèle non configuré : ajoute la variable AI_MODEL sur Render.' });
   let msgs = Array.isArray(req.body && req.body.messages) ? req.body.messages : null;
   if (!msgs || !msgs.length || msgs.length > 400) return res.status(400).json({ error: 'Conversation invalide.' });
   msgs = msgs.filter((m) => m && ['user', 'assistant'].includes(m.role) && typeof m.content === 'string' && m.content.trim())
     .map((m) => ({ role: m.role, content: m.content.slice(0, 200000) }));
   while (msgs.length && msgs[0].role !== 'user') msgs.shift();
   if (!msgs.length || msgs[msgs.length - 1].role !== 'user') return res.status(400).json({ error: 'Le dernier message doit venir de toi.' });
-  const body = { model: process.env.ADMIN_AI_MODEL || IA_MODELE_DEFAUT, max_tokens: Number(process.env.ADMIN_AI_MAX_TOKENS) || 16000, stream: true, system: IA_SYSTEME + '\n\n' + (await contexteAdmin()), messages: msgs };
+  const systeme = IA_SYSTEME + '\n\n' + (await contexteAdmin());
+  const max = Number(process.env.ADMIN_AI_MAX_TOKENS) || 16000;
+  let url, headers, body;
+  if (f.type === 'anthropic') {
+    url = (process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com') + '/v1/messages';
+    headers = { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' };
+    body = { model: f.modele, max_tokens: max, stream: true, system: systeme, messages: msgs };
+  } else {
+    url = f.base.replace(/\/$/, '') + '/chat/completions';
+    headers = { 'content-type': 'application/json', accept: 'text/event-stream' };
+    if (f.key) headers.authorization = 'Bearer ' + f.key;
+    body = { model: f.modele, stream: true, messages: [{ role: 'system', content: systeme }, ...msgs] };
+    if (f.type === 'compatible') body.max_tokens = max;
+  }
   res.status(200).set({ 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' });
   res.flushHeaders();
   const send = (o) => res.write('data: ' + JSON.stringify(o) + '\n\n');
   const ctrl = new AbortController();
   res.on('close', () => ctrl.abort());
   try {
-    const r = await fetch((process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com') + '/v1/messages', {
-      method: 'POST', signal: ctrl.signal,
-      headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    const r = await fetch(url, { method: 'POST', signal: ctrl.signal, headers, body: JSON.stringify(body) });
     if (!r.ok) {
       let msg = 'Erreur ' + r.status;
-      try { const d = await r.json(); msg += ' : ' + ((d.error && d.error.message) || ''); } catch (e) { /* corps non JSON */ }
+      try { const d = await r.json(); msg += ' : ' + ((d.error && (d.error.message || d.error)) || d.message || ''); } catch (e) { /* corps non JSON */ }
       send({ erreur: msg }); return res.end();
+    }
+    if (f.type !== 'anthropic' && !(r.headers.get('content-type') || '').includes('text/event-stream')) { // réponse non streamée
+      const d = await r.json().catch(() => null);
+      const t = d && d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content;
+      send(t ? { texte: t } : { erreur: 'Réponse vide du service IA.' }); return res.end();
     }
     const dec = new TextDecoder(); let buf = '';
     for await (const chunk of r.body) {
@@ -130,16 +151,25 @@ app.post('/hub/admin/ia', requireHub, express.json({ limit: '2mb' }), async (req
       let i;
       while ((i = buf.indexOf('\n\n')) >= 0) {
         const bloc = buf.slice(0, i); buf = buf.slice(i + 2);
-        const l = bloc.split('\n').find((x) => x.startsWith('data: '));
+        const l = bloc.split('\n').find((x) => x.startsWith('data:'));
         if (!l) continue;
-        let d; try { d = JSON.parse(l.slice(6)); } catch (e) { continue; }
-        if (d.type === 'content_block_delta' && d.delta && d.delta.type === 'text_delta') send({ texte: d.delta.text });
-        else if (d.type === 'message_delta' && d.delta && d.delta.stop_reason === 'max_tokens') send({ erreur: 'Réponse coupée : limite de longueur atteinte. Écris « continue » pour la suite.' });
-        else if (d.type === 'error') send({ erreur: (d.error && d.error.message) || 'Erreur du service IA.' });
+        const brut = l.slice(5).trim();
+        if (!brut || brut === '[DONE]') continue;
+        let d; try { d = JSON.parse(brut); } catch (e) { continue; }
+        if (f.type === 'anthropic') {
+          if (d.type === 'content_block_delta' && d.delta && d.delta.type === 'text_delta') send({ texte: d.delta.text });
+          else if (d.type === 'message_delta' && d.delta && d.delta.stop_reason === 'max_tokens') send({ erreur: 'Réponse coupée : limite de longueur atteinte. Écris « continue » pour la suite.' });
+          else if (d.type === 'error') send({ erreur: (d.error && d.error.message) || 'Erreur du service IA.' });
+        } else {
+          const c = d.choices && d.choices[0], t = c && c.delta && c.delta.content;
+          if (t) send({ texte: t });
+          if (c && c.finish_reason === 'length') send({ erreur: 'Réponse coupée : limite de longueur atteinte. Écris « continue » pour la suite.' });
+          if (d.error) send({ erreur: d.error.message || 'Erreur du service IA.' });
+        }
       }
     }
   } catch (e) {
-    if (e.name !== 'AbortError') send({ erreur: "Impossible de joindre le service IA : " + e.message });
+    if (e.name !== 'AbortError') send({ erreur: 'Impossible de joindre le service IA : ' + e.message });
   }
   res.end();
 });
@@ -200,7 +230,7 @@ app.get('/hub/admin/etat', requireHub, async (req, res) => {
   } catch (err) { stats.erreur = 'Stats indisponibles.'; }
   const noms = Object.fromEntries(lireProjets().map((p) => [p.id, p.nom]));
   const sites = SITES.map((id) => ({ id, nom: noms[id] || id, actif: !!(reglages.locks[id] && reglages.locks[id].actif), message: (reglages.locks[id] && reglages.locks[id].message) || '' }));
-  res.json({ sites, annonce: reglages.annonce, stats, ia: { configure: !!process.env.ANTHROPIC_API_KEY, modele: process.env.ADMIN_AI_MODEL || IA_MODELE_DEFAUT } });
+  res.json({ sites, annonce: reglages.annonce, stats, ia: { fournisseur: fournisseurIA().type, modele: fournisseurIA().modele } });
 });
 const texte = (v, max) => String(v ?? '').trim().slice(0, max);
 app.post('/hub/admin/lock/:site', requireHub, async (req, res) => {
