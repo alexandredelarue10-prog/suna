@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow"><title>Gérer l'album</title><link rel="stylesheet" href="/assets/hub.css"><script defer src="/assets/annonce.js"></script></head>
+<body><div class="wrap">
+<div class="head"><h1>Gérer l'album</h1><div class="row"><a class="btn ghost" href="/album">Voir l'album</a><a class="btn ghost" href="/admin">← Admin</a></div></div>
+
+<div class="panel"><h2>Titre et présentation</h2>
+<input id="at" maxlength="120" placeholder="Titre de l'album"><textarea id="ad" maxlength="2000" placeholder="Texte de présentation (facultatif)"></textarea>
+<div class="row"><button class="btn" id="a-save">Enregistrer</button><span class="msg" id="a-res"></span></div></div>
+
+<div class="panel"><h2>Ajouter des photos</h2>
+<div class="drop" id="drop">Glisse tes photos ici ou clique pour les choisir<br><span class="mut">JPEG, PNG, WebP ou GIF · redimensionnées automatiquement</span></div>
+<input type="file" id="files" accept="image/jpeg,image/png,image/webp,image/gif" multiple hidden>
+<div class="msg" id="up-res" style="margin-top:8px"></div><div class="mut" id="stock"></div></div>
+
+<div id="liste"></div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let photos=[];
+async function api(url,method,body){const r=await fetch(url,{method:method||'GET',headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined});
+  if(r.status===401){location.href='/admin';throw new Error('Session expirée')}
+  const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'Erreur');return d}
+const flash=(el,t)=>{el.textContent=t;setTimeout(()=>el.textContent='',3000)};
+const mo=n=>(n/1048576).toFixed(1)+' Mo';
+function dessiner(){
+  $('liste').innerHTML=photos.map((p,i)=>`<div class="panel ph" data-id="${p.id}"><img src="/album/img/${p.id}?v=${p.v}" alt="">
+    <div class="f"><input class="p-t" maxlength="120" placeholder="Titre (facultatif)" value="${esc(p.titre)}"><textarea class="p-l" maxlength="3000" placeholder="Texte sous l'image">${esc(p.legende)}</textarea>
+    <div class="row"><label><input type="checkbox" class="p-v" ${p.visible?'checked':''} style="width:auto"> Visible</label><button class="btn sm" data-a="save">Enregistrer</button>
+    <button class="btn sm ghost" data-a="up" ${i===0?'disabled':''}>↑</button><button class="btn sm ghost" data-a="down" ${i===photos.length-1?'disabled':''}>↓</button>
+    <label class="btn sm ghost" style="margin:0">Remplacer l'image<input type="file" class="p-f" accept="image/jpeg,image/png,image/webp,image/gif" hidden></label>
+    <button class="btn sm danger" data-a="del">Supprimer</button><span class="msg"></span></div><div class="mut">${mo(p.taille)}</div></div></div>`).join('')||'<p class="mut">Aucune photo. Ajoute-en ci-dessus.</p>';
+}
+async function charger(){const a=await api('/hub/admin/album');$('at').value=a.titre;$('ad').value=a.description;photos=a.photos;
+  $('stock').textContent=`${photos.length}/${a.max} photos · ${mo(a.total)} utilisés dans la base de données`;dessiner()}
+// Redimensionne côté navigateur (1920 px max) pour économiser l'espace de la base
+async function compresser(f){
+  if(f.type==='image/gif')return f;
+  const bmp=await createImageBitmap(f,{imageOrientation:'from-image'}).catch(()=>null);if(!bmp)return f;
+  const k=Math.min(1,1920/Math.max(bmp.width,bmp.height));const c=document.createElement('canvas');c.width=Math.round(bmp.width*k);c.height=Math.round(bmp.height*k);
+  c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);
+  const blob=await new Promise(r=>c.toBlob(r,f.type==='image/png'?'image/webp':'image/jpeg',0.88));
+  return blob&&blob.size<f.size?blob:f;
+}
+async function envoyer(url,f){const b=await compresser(f);const r=await fetch(url,{method:'POST',headers:{'Content-Type':b.type||'application/octet-stream'},body:b});
+  if(r.status===401){location.href='/admin';throw new Error('Session expirée')}
+  const d=await r.json().catch(()=>({error:'Fichier trop volumineux (8 Mo max).'}));if(!r.ok)throw new Error(d.error||'Erreur');return d}
+async function ajouter(list){
+  const fs=[...list].filter(f=>f.type.startsWith('image/'));let ok=0;
+  for(let i=0;i<fs.length;i++){$('up-res').textContent=`Envoi ${i+1}/${fs.length}…`;
+    try{await envoyer('/hub/admin/album/photos',fs[i]);ok++}catch(e){$('up-res').textContent=`⚠️ ${fs[i].name} : ${e.message}`;await new Promise(r=>setTimeout(r,2500))}}
+  $('up-res').textContent=ok?`${ok} photo(s) ajoutée(s).`:'';await charger();
+}
+$('drop').onclick=()=>$('files').click();$('files').onchange=e=>{ajouter(e.target.files);e.target.value=''};
+$('drop').ondragover=e=>{e.preventDefault();$('drop').classList.add('on')};$('drop').ondragleave=()=>$('drop').classList.remove('on');
+$('drop').ondrop=e=>{e.preventDefault();$('drop').classList.remove('on');ajouter(e.dataTransfer.files)};
+$('a-save').onclick=async()=>{try{await api('/hub/admin/album','PUT',{titre:$('at').value,description:$('ad').value});flash($('a-res'),'Enregistré.')}catch(e){flash($('a-res'),'⚠️ '+e.message)}};
+async function ordre(){await api('/hub/admin/album/ordre','PUT',{ids:photos.map(p=>p.id)})}
+$('liste').onclick=async e=>{const b=e.target.closest('[data-a]');if(!b)return;const card=b.closest('.ph'),id=Number(card.dataset.id),i=photos.findIndex(p=>p.id===id),msg=card.querySelector('.msg');
+  try{
+    if(b.dataset.a==='save'){await api('/hub/admin/album/photos/'+id,'PUT',{titre:card.querySelector('.p-t').value,legende:card.querySelector('.p-l').value,visible:card.querySelector('.p-v').checked});
+      Object.assign(photos[i],{titre:card.querySelector('.p-t').value,legende:card.querySelector('.p-l').value,visible:card.querySelector('.p-v').checked});flash(msg,'Enregistré.')}
+    else if(b.dataset.a==='del'){if(!confirm('Supprimer cette photo définitivement ?'))return;await api('/hub/admin/album/photos/'+id,'DELETE');await charger()}
+    else{const j=b.dataset.a==='up'?i-1:i+1;if(j<0||j>=photos.length)return;[photos[i],photos[j]]=[photos[j],photos[i]];await ordre();dessiner()}
+  }catch(err){flash(msg,'⚠️ '+err.message)}};
+$('liste').onchange=async e=>{if(!e.target.classList.contains('p-f')||!e.target.files[0])return;const card=e.target.closest('.ph'),msg=card.querySelector('.msg');
+  try{msg.textContent='Envoi…';await envoyer('/hub/admin/album/photos/'+card.dataset.id+'/image',e.target.files[0]);await charger()}catch(err){flash(msg,'⚠️ '+err.message)}};
+charger();
+</script></body></html>

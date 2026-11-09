@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Album photo</title><link rel="stylesheet" href="/assets/hub.css"><script defer src="/assets/annonce.js"></script></head>
+<body><div class="wrap">
+<div class="head"><h1 id="t">Album photo</h1><a class="btn ghost" href="/">← Portfolio</a></div>
+<p id="d" style="margin:0 0 22px;opacity:.85;white-space:pre-wrap" hidden></p>
+<div class="album" id="grid"><p class="vide">Chargement…</p></div>
+</div>
+<div class="lb" id="lb" hidden><img id="lbi" alt=""><div class="cap" id="lbc"></div>
+<div class="nav"><button class="btn ghost" id="prev">←</button><button class="btn ghost" id="close">Fermer</button><button class="btn ghost" id="next">→</button></div></div>
+<script>
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let photos=[],cur=0;
+const src=p=>`/album/img/${p.id}?v=${p.v}`;
+function ouvrir(i){cur=(i+photos.length)%photos.length;const p=photos[cur];$('lbi').src=src(p);$('lbi').alt=p.titre||'';
+  const c=$('lbc');c.innerHTML=(p.titre?`<b style="color:var(--or)">${esc(p.titre)}</b><br>`:'')+esc(p.legende);$('lb').hidden=false}
+const $=id=>document.getElementById(id);
+fetch('/hub/album').then(r=>r.json()).then(a=>{
+  document.title=a.titre;$('t').textContent=a.titre;if(a.description){$('d').textContent=a.description;$('d').hidden=false}
+  photos=a.photos;
+  $('grid').innerHTML=photos.length?photos.map((p,i)=>`<figure data-i="${i}"><img loading="lazy" src="${src(p)}" alt="${esc(p.titre||p.legende.slice(0,100))}">${p.titre||p.legende?`<figcaption>${p.titre?`<b>${esc(p.titre)}</b>`:''}${esc(p.legende)}</figcaption>`:''}</figure>`).join(''):'<p class="vide">Aucune photo pour le moment.</p>';
+}).catch(()=>{$('grid').innerHTML='<p class="vide">Impossible de charger l\'album.</p>'});
+$('grid').onclick=e=>{const f=e.target.closest('figure');if(f)ouvrir(Number(f.dataset.i))};
+$('close').onclick=()=>{$('lb').hidden=true};$('prev').onclick=()=>ouvrir(cur-1);$('next').onclick=()=>ouvrir(cur+1);
+$('lb').onclick=e=>{if(e.target===$('lb'))$('lb').hidden=true};
+document.onkeydown=e=>{if($('lb').hidden)return;if(e.key==='Escape')$('lb').hidden=true;if(e.key==='ArrowLeft')ouvrir(cur-1);if(e.key==='ArrowRight')ouvrir(cur+1)};
+</script></body></html>

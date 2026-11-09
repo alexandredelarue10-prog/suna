@@ -18,12 +18,15 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 // ---------- Réglages admin (en mémoire, persistés en base) ----------
 const SITES = ['police-suna', 'dojo-fuinjutsu', 'dojo-sensoriel']; // sites hébergés ici, verrouillables séparément
-const reglages = { locks: {}, annonce: { actif: false, texte: '' } };
+const reglages = { locks: {}, annonce: { actif: false, texte: '' }, album: { titre: 'Album photo', description: '' } };
 async function chargerReglages() {
   await pool.query('CREATE TABLE IF NOT EXISTS hub_settings (cle TEXT PRIMARY KEY, valeur JSONB NOT NULL)');
+  await pool.query(`CREATE TABLE IF NOT EXISTS hub_album_photos (id SERIAL PRIMARY KEY, ordre INT NOT NULL DEFAULT 0, titre TEXT NOT NULL DEFAULT '', legende TEXT NOT NULL DEFAULT '',
+    visible BOOLEAN NOT NULL DEFAULT TRUE, mime TEXT NOT NULL, donnees BYTEA NOT NULL, taille INT NOT NULL, cree_le TIMESTAMPTZ DEFAULT now(), maj TIMESTAMPTZ DEFAULT now())`);
   const { rows } = await pool.query('SELECT cle, valeur FROM hub_settings');
   for (const r of rows) {
     if (r.cle === 'annonce') reglages.annonce = { ...reglages.annonce, ...r.valeur };
+    else if (r.cle === 'album') reglages.album = { ...reglages.album, ...r.valeur };
     else if (r.cle.startsWith('lock:')) reglages.locks[r.cle.slice(5)] = r.valeur;
     else if (r.cle === 'maintenance' && !reglages.locks['police-suna']) reglages.locks['police-suna'] = r.valeur; // ancien réglage
   }
@@ -155,12 +158,86 @@ app.post('/hub/admin/deconnecter-tous', requireHub, async (req, res) => {
   res.json({ deconnectes: r.rowCount });
 });
 
+// ---------- Album photo (images stockées en base : le disque de l'hébergeur est éphémère) ----------
+const ah = (fn) => (req, res, next) => fn(req, res, next).catch(next);
+const ALBUM_MAX = 400;
+function detecterImage(b) { // on ne fait pas confiance au type annoncé : on lit les premiers octets (pas de SVG, pas de HTML déguisé)
+  if (b.length < 12) return null;
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
+  if (b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
+  const h6 = b.subarray(0, 6).toString('latin1');
+  if (h6 === 'GIF87a' || h6 === 'GIF89a') return 'image/gif';
+  if (b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP') return 'image/webp';
+  return null;
+}
+const rawImg = express.raw({ type: () => true, limit: '8mb' });
+const lireImage = (req, res) => {
+  const buf = req.body;
+  if (!Buffer.isBuffer(buf) || !buf.length) { res.status(400).json({ error: 'Image manquante.' }); return null; }
+  const mime = detecterImage(buf);
+  if (!mime) { res.status(400).json({ error: 'Format non pris en charge (JPEG, PNG, WebP ou GIF).' }); return null; }
+  return { buf, mime };
+};
+const idParam = (req) => { const n = Number(req.params.id); return Number.isInteger(n) ? n : -1; };
+
+app.get('/hub/album', ah(async (req, res) => {
+  const r = await pool.query('SELECT id, titre, legende, EXTRACT(EPOCH FROM maj)::bigint AS v FROM hub_album_photos WHERE visible ORDER BY ordre, id');
+  res.json({ ...reglages.album, photos: r.rows });
+}));
+app.get('/album/img/:id', ah(async (req, res) => {
+  const r = await pool.query('SELECT mime, donnees, visible FROM hub_album_photos WHERE id=$1', [idParam(req)]);
+  const p = r.rows[0];
+  if (!p || (!p.visible && !isHub(req))) return res.sendStatus(404);
+  res.set({ 'Content-Type': p.mime, 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox",
+    'Cache-Control': p.visible ? 'public, max-age=31536000, immutable' : 'private, no-store' }); // l'URL change (?v=) quand l'image est remplacée
+  res.send(p.donnees);
+}));
+app.get('/hub/admin/album', requireHub, ah(async (req, res) => {
+  const r = await pool.query('SELECT id, titre, legende, visible, mime, taille, EXTRACT(EPOCH FROM maj)::bigint AS v FROM hub_album_photos ORDER BY ordre, id');
+  res.json({ ...reglages.album, photos: r.rows, total: r.rows.reduce((a, p) => a + p.taille, 0), max: ALBUM_MAX });
+}));
+app.put('/hub/admin/album', requireHub, ah(async (req, res) => {
+  await sauver('album', { titre: texte(req.body.titre, 120) || 'Album photo', description: texte(req.body.description, 2000) });
+  res.json(reglages.album);
+}));
+app.post('/hub/admin/album/photos', requireHub, rawImg, ah(async (req, res) => {
+  const img = lireImage(req, res); if (!img) return;
+  if ((await pool.query('SELECT COUNT(*)::int AS n FROM hub_album_photos')).rows[0].n >= ALBUM_MAX) return res.status(400).json({ error: `Limite de ${ALBUM_MAX} photos atteinte.` });
+  const r = await pool.query('INSERT INTO hub_album_photos (ordre, mime, donnees, taille) VALUES ((SELECT COALESCE(MAX(ordre), 0) + 1 FROM hub_album_photos), $1, $2, $3) RETURNING id', [img.mime, img.buf, img.buf.length]);
+  res.json({ id: r.rows[0].id });
+}));
+app.post('/hub/admin/album/photos/:id/image', requireHub, rawImg, ah(async (req, res) => {
+  const img = lireImage(req, res); if (!img) return;
+  const r = await pool.query('UPDATE hub_album_photos SET mime=$1, donnees=$2, taille=$3, maj=now() WHERE id=$4', [img.mime, img.buf, img.buf.length, idParam(req)]);
+  r.rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Photo introuvable.' });
+}));
+app.put('/hub/admin/album/ordre', requireHub, ah(async (req, res) => {
+  const ids = Array.isArray(req.body.ids) ? req.body.ids.map(Number).filter(Number.isInteger) : [];
+  if (!ids.length || ids.length > ALBUM_MAX) return res.status(400).json({ error: 'Ordre invalide.' });
+  await pool.query('WITH t AS (SELECT id, ord FROM unnest($1::int[]) WITH ORDINALITY AS u(id, ord)) UPDATE hub_album_photos p SET ordre = t.ord FROM t WHERE p.id = t.id', [ids]);
+  res.json({ ok: true });
+}));
+app.put('/hub/admin/album/photos/:id', requireHub, ah(async (req, res) => {
+  const r = await pool.query('UPDATE hub_album_photos SET titre=$1, legende=$2, visible=$3 WHERE id=$4', [texte(req.body.titre, 120), texte(req.body.legende, 3000), !!req.body.visible, idParam(req)]);
+  r.rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Photo introuvable.' });
+}));
+app.delete('/hub/admin/album/photos/:id', requireHub, ah(async (req, res) => {
+  await pool.query('DELETE FROM hub_album_photos WHERE id=$1', [idParam(req)]); res.json({ ok: true });
+}));
+
 // Pages
 app.use('/assets', express.static(path.join(__dirname, 'hub', 'public', 'assets')));
 const page = (f) => path.join(__dirname, 'hub', 'public', f);
 app.get('/', (req, res) => res.sendFile(page('index.html')));
+app.get('/album', (req, res) => res.sendFile(page('album.html')));
+app.get('/admin/album', (req, res) => (isHub(req) ? res.sendFile(page('admin-album.html')) : res.redirect('/admin')));
 app.get('/admin', (req, res) => res.sendFile(page(isHub(req) ? 'admin.html' : 'login.html')));
 app.use((req, res) => res.redirect('/'));
+app.use((err, req, res, next) => { // jamais de pile d'erreur ni de chemin serveur dans la réponse
+  if (err.type === 'entity.too.large') return res.status(413).json({ error: 'Fichier trop volumineux (8 Mo max).' });
+  console.error('[server]', err.message);
+  res.status(err.status || 500).json({ error: 'Erreur serveur.' });
+});
 
 police.init()
   .then(chargerReglages)
