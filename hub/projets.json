@@ -38,5 +38,16 @@
     "statut": "En ligne",
     "url": "/dojo-sensoriel/",
     "public": true
+  },
+  {
+    "id": "album",
+    "nom": "Album photo",
+    "description": "Mon album photo : des photos avec le texte de mon choix sous chaque image.",
+    "tags": [
+      "Photos"
+    ],
+    "statut": "En ligne",
+    "url": "/album",
+    "public": true
   }
 ]

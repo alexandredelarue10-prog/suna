@@ -17,7 +17,7 @@ app.set('trust proxy', 1);
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 // ---------- Réglages admin (en mémoire, persistés en base) ----------
-const SITES = ['police-suna', 'dojo-fuinjutsu', 'dojo-sensoriel']; // sites hébergés ici, verrouillables séparément
+const SITES = ['police-suna', 'dojo-fuinjutsu', 'dojo-sensoriel', 'album']; // sites hébergés ici, verrouillables séparément
 const reglages = { locks: {}, annonce: { actif: false, texte: '' }, album: { titre: 'Album photo', description: '' } };
 async function chargerReglages() {
   await pool.query('CREATE TABLE IF NOT EXISTS hub_settings (cle TEXT PRIMARY KEY, valeur JSONB NOT NULL)');
@@ -80,6 +80,9 @@ app.use('/police-suna', police.app);
 // Dojo de fuinjutsu : l'admin du hub y agit comme Maître
 app.get(/^\/dojo-fuinjutsu$/, (req, res) => res.redirect('/dojo-fuinjutsu/'));
 app.use('/dojo-fuinjutsu', verrou('dojo-fuinjutsu'), (req, res, next) => { req.hubAdmin = isHub(req); next(); }, dojo.app);
+
+// Album photo : verrouillable séparément, comme les autres sites (page, images et données)
+app.use('/album', verrou('album'));
 
 // Dojo des ninja sensoriels (détection de chakra)
 app.get(/^\/dojo-sensoriel$/, (req, res) => res.redirect('/dojo-sensoriel/'));
@@ -181,6 +184,7 @@ const lireImage = (req, res) => {
 const idParam = (req) => { const n = Number(req.params.id); return Number.isInteger(n) ? n : -1; };
 
 app.get('/hub/album', ah(async (req, res) => {
+  if (reglages.locks.album && reglages.locks.album.actif && !isHub(req)) return res.status(503).json({ error: reglages.locks.album.message || MSG_DEFAUT, maintenance: true });
   const r = await pool.query('SELECT id, titre, legende, EXTRACT(EPOCH FROM maj)::bigint AS v FROM hub_album_photos WHERE visible ORDER BY ordre, id');
   res.json({ ...reglages.album, photos: r.rows });
 }));
