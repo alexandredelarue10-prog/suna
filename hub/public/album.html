@@ -16,7 +16,7 @@ function ouvrir(i){cur=(i+photos.length)%photos.length;const p=photos[cur];$('lb
   const c=$('lbc');c.innerHTML=(p.titre?`<b style="color:var(--or)">${esc(p.titre)}</b><br>`:'')+esc(p.legende);$('lb').hidden=false}
 const $=id=>document.getElementById(id);
 fetch('/hub/album').then(r=>r.json()).then(a=>{
-  document.title=a.titre;$('t').textContent=a.titre;if(a.description){$('d').textContent=a.description;$('d').hidden=false}
+  document.title=a.titre;$('grid').style.setProperty('--ratio',a.format||'4/3');$('grid').dataset.fit=a.ajustement||'cover';$('t').textContent=a.titre;if(a.description){$('d').textContent=a.description;$('d').hidden=false}
   photos=a.photos;
   $('grid').innerHTML=photos.length?photos.map((p,i)=>`<figure data-i="${i}"><img loading="lazy" src="${src(p)}" alt="${esc(p.titre||p.legende.slice(0,100))}">${p.titre||p.legende?`<figcaption>${p.titre?`<b>${esc(p.titre)}</b>`:''}${esc(p.legende)}</figcaption>`:''}</figure>`).join(''):'<p class="vide">Aucune photo pour le moment.</p>';
 }).catch(()=>{$('grid').innerHTML='<p class="vide">Impossible de charger l\'album.</p>'});

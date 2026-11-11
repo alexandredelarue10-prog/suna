@@ -6,6 +6,10 @@
 
 <div class="panel"><h2>Titre et présentation</h2>
 <input id="at" maxlength="120" placeholder="Titre de l'album"><textarea id="ad" maxlength="2000" placeholder="Texte de présentation (facultatif)"></textarea>
+<div class="row"><div style="flex:1;min-width:180px"><label class="mut">Taille des images (toutes identiques)</label>
+<select id="af"><option value="4/3">Paysage (4:3)</option><option value="1/1">Carré (1:1)</option><option value="16/9">Large (16:9)</option><option value="3/4">Portrait (3:4)</option></select></div>
+<div style="flex:1;min-width:180px"><label class="mut">Affichage</label>
+<select id="aj"><option value="cover">Remplir la vignette (recadre)</option><option value="contain">Image entière (bandes noires si besoin)</option></select></div></div>
 <div class="row"><button class="btn" id="a-save">Enregistrer</button><span class="msg" id="a-res"></span></div></div>
 
 <div class="panel"><h2>Ajouter des photos</h2>
@@ -23,6 +27,7 @@ async function api(url,method,body){const r=await fetch(url,{method:method||'GET
   if(r.status===401){location.href='/admin';throw new Error('Session expirée')}
   const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'Erreur');return d}
 const flash=(el,t)=>{el.textContent=t;setTimeout(()=>el.textContent='',3000)};
+function appliquer(){const l=$('liste');l.style.setProperty('--ratio',$('af').value);l.dataset.fit=$('aj').value}
 const mo=n=>(n/1048576).toFixed(1)+' Mo';
 function dessiner(){
   $('liste').innerHTML=photos.map((p,i)=>`<div class="panel ph" data-id="${p.id}"><img src="/album/img/${p.id}?v=${p.v}" alt="">
@@ -32,7 +37,7 @@ function dessiner(){
     <label class="btn sm ghost" style="margin:0">Remplacer l'image<input type="file" class="p-f" accept="image/jpeg,image/png,image/webp,image/gif" hidden></label>
     <button class="btn sm danger" data-a="del">Supprimer</button><span class="msg"></span></div><div class="mut">${mo(p.taille)}</div></div></div>`).join('')||'<p class="mut">Aucune photo. Ajoute-en ci-dessus.</p>';
 }
-async function charger(){const a=await api('/hub/admin/album');$('at').value=a.titre;$('ad').value=a.description;photos=a.photos;
+async function charger(){const a=await api('/hub/admin/album');$('at').value=a.titre;$('ad').value=a.description;$('af').value=a.format||'4/3';$('aj').value=a.ajustement||'cover';appliquer();photos=a.photos;
   $('stock').textContent=`${photos.length}/${a.max} photos · ${mo(a.total)} utilisés dans la base de données`;dessiner()}
 // Redimensionne côté navigateur (1920 px max) pour économiser l'espace de la base
 async function compresser(f){
@@ -55,7 +60,8 @@ async function ajouter(list){
 $('drop').onclick=()=>$('files').click();$('files').onchange=e=>{ajouter(e.target.files);e.target.value=''};
 $('drop').ondragover=e=>{e.preventDefault();$('drop').classList.add('on')};$('drop').ondragleave=()=>$('drop').classList.remove('on');
 $('drop').ondrop=e=>{e.preventDefault();$('drop').classList.remove('on');ajouter(e.dataTransfer.files)};
-$('a-save').onclick=async()=>{try{await api('/hub/admin/album','PUT',{titre:$('at').value,description:$('ad').value});flash($('a-res'),'Enregistré.')}catch(e){flash($('a-res'),'⚠️ '+e.message)}};
+$('af').onchange=$('aj').onchange=appliquer;
+$('a-save').onclick=async()=>{try{await api('/hub/admin/album','PUT',{titre:$('at').value,description:$('ad').value,format:$('af').value,ajustement:$('aj').value});flash($('a-res'),'Enregistré.')}catch(e){flash($('a-res'),'⚠️ '+e.message)}};
 async function ordre(){await api('/hub/admin/album/ordre','PUT',{ids:photos.map(p=>p.id)})}
 $('liste').onclick=async e=>{const b=e.target.closest('[data-a]');if(!b)return;const card=b.closest('.ph'),id=Number(card.dataset.id),i=photos.findIndex(p=>p.id===id),msg=card.querySelector('.msg');
   try{

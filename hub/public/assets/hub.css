@@ -27,14 +27,16 @@ table{width:100%;border-collapse:collapse;font-size:14px;margin-top:10px}td,th{t
 .bandeau{background:var(--or);color:var(--nuit);text-align:center;padding:10px 16px;font-weight:600}
 
 .btn.sm{padding:5px 10px;font-size:13px}
-.album{columns:3 260px;column-gap:16px}
-.album figure{break-inside:avoid;margin:0 0 16px;background:var(--nuit2);border:1px solid #ffffff1a;border-radius:6px;overflow:hidden;cursor:zoom-in}
-.album img{width:100%;height:auto;display:block}
+.album{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px;align-items:start}
+.album figure{margin:0;background:var(--nuit2);border:1px solid #ffffff1a;border-radius:6px;overflow:hidden;cursor:zoom-in}
+.album img{width:100%;height:auto;aspect-ratio:var(--ratio,4/3);object-fit:cover;display:block;background:#0b0b0b}
+.album[data-fit=contain] img{object-fit:contain}
 .album figcaption{padding:10px 12px;font-size:14px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
 .album figcaption b{display:block;color:var(--or);font-family:Oswald,'Arial Narrow',sans-serif;letter-spacing:.03em;margin-bottom:4px}
 .lb{position:fixed;inset:0;background:#000d;z-index:2000;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;gap:12px}
 .lb[hidden]{display:none}.lb img{max-width:100%;max-height:72vh;border-radius:4px}
 .lb .cap{max-width:760px;text-align:center;white-space:pre-wrap;line-height:1.5;overflow-wrap:anywhere;max-height:20vh;overflow:auto}
 .lb .nav{display:flex;gap:10px}
-.ph{display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap}.ph img{width:170px;max-width:100%;border-radius:4px;background:#000}.ph .f{flex:1;min-width:220px}
+.ph{display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap}.ph img{width:170px;max-width:100%;height:auto;aspect-ratio:var(--ratio,4/3);object-fit:cover;border-radius:4px;background:#000}
+#liste[data-fit=contain] .ph img{object-fit:contain}.ph .f{flex:1;min-width:220px}
 .drop{border:2px dashed #ffffff44;border-radius:8px;padding:22px;text-align:center;cursor:pointer}.drop.on{border-color:var(--or);background:#ffffff0a}
