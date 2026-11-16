@@ -18,7 +18,7 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 // ---------- Réglages admin (en mémoire, persistés en base) ----------
 const SITES = ['police-suna', 'dojo-fuinjutsu', 'dojo-sensoriel', 'album']; // sites hébergés ici, verrouillables séparément
-const reglages = { locks: {}, annonce: { actif: false, texte: '' }, album: { titre: 'Album photo', description: '', format: '4/3', ajustement: 'cover' } };
+const reglages = { locks: {}, annonce: { actif: false, texte: '' }, album: { titre: 'Album photo', description: '', bas: '', format: '4/3', ajustement: 'cover' } };
 async function chargerReglages() {
   await pool.query('CREATE TABLE IF NOT EXISTS hub_settings (cle TEXT PRIMARY KEY, valeur JSONB NOT NULL)');
   await pool.query(`CREATE TABLE IF NOT EXISTS hub_album_photos (id SERIAL PRIMARY KEY, ordre INT NOT NULL DEFAULT 0, titre TEXT NOT NULL DEFAULT '', legende TEXT NOT NULL DEFAULT '',
@@ -202,7 +202,7 @@ app.get('/hub/admin/album', requireHub, ah(async (req, res) => {
 }));
 app.put('/hub/admin/album', requireHub, ah(async (req, res) => {
   const FORMATS = ['1/1', '4/3', '16/9', '3/4'], AJUST = ['cover', 'contain'];
-  await sauver('album', { titre: texte(req.body.titre, 120) || 'Album photo', description: texte(req.body.description, 2000),
+  await sauver('album', { titre: texte(req.body.titre, 120) || 'Album photo', description: texte(req.body.description, 5000), bas: texte(req.body.bas, 5000),
     format: FORMATS.includes(req.body.format) ? req.body.format : '4/3', ajustement: AJUST.includes(req.body.ajustement) ? req.body.ajustement : 'cover' });
   res.json(reglages.album);
 }));
