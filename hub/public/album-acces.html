@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow"><title>Album privé</title><link rel="stylesheet" href="/assets/hub.css"><script defer src="/assets/annonce.js"></script></head>
+<body><div class="login"><h1>Album privé</h1><p>Entre le mot de passe pour accéder à l'album.</p>
+<input id="pw" type="password" placeholder="Mot de passe" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false" autofocus>
+<div class="err" id="err"></div><button class="btn" id="go" style="width:100%">Entrer</button>
+<p style="margin:18px 0 0;font-size:13px"><a href="/" style="color:inherit;opacity:.7">← Retour au portfolio</a></p></div>
+<script>
+const pw=document.getElementById('pw'),err=document.getElementById('err');
+async function go(){err.textContent='';
+  const r=await fetch('/hub/album/acces',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw.value})});
+  const d=await r.json().catch(()=>({}));
+  if(r.ok)location.href='/album';else{err.textContent=d.error||'Erreur.';pw.select()}}
+document.getElementById('go').onclick=go;pw.onkeydown=e=>{if(e.key==='Enter')go()};
+</script></body></html>

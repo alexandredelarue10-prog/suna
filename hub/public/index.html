@@ -8,7 +8,7 @@
 <script>
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 fetch('/hub/projets').then(r=>r.json()).then(list=>{
-  document.getElementById('grid').innerHTML=list.length?list.map(p=>`<div class="card"><div class="st" style="${p.ferme?'color:#e08a8a':''}">● ${p.ferme?'Fermé temporairement':esc(p.statut)}</div><h2>${esc(p.nom)}</h2><p>${esc(p.description)}</p>
+  document.getElementById('grid').innerHTML=list.length?list.map(p=>`<div class="card"><div class="st" style="${p.ferme?'color:#e08a8a':''}">● ${p.ferme?'Fermé temporairement':esc(p.statut)}${p.protege?' · 🔒 Accès par mot de passe':''}</div><h2>${esc(p.nom)}</h2><p>${esc(p.description)}</p>
   <div class="tags">${(p.tags||[]).map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div>
   ${p.ferme?'<span class="btn ghost" style="opacity:.6;cursor:default">Fermé</span>':`<a class="btn" href="${esc(p.url)}">Ouvrir</a>`}</div>`).join(''):'<p class="vide">Bientôt des projets ici.</p>';
 }).catch(()=>{document.getElementById('grid').innerHTML='<p class="vide">Impossible de charger les projets.</p>'});
