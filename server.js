@@ -269,7 +269,7 @@ app.put('/hub/admin/album/ordre', requireHub, ah(async (req, res) => {
 app.put('/hub/admin/album/photos/:id', requireHub, ah(async (req, res) => {
   const b = req.body, pick = (v, liste) => (liste.includes(v) ? v : liste[0]); // filtre, couleur et style : valeurs d'une liste fixe uniquement
   const r = await pool.query('UPDATE hub_album_photos SET titre=$1, legende=$2, visible=$3, etiquette=$4, filtre=$5, couleur=$6, style=$7 WHERE id=$8',
-    [texte(b.titre, 120), texte(b.legende, 3000), !!b.visible, texte(b.etiquette, 40), pick(b.filtre, FILTRES), pick(b.couleur, COULEURS), pick(b.style, STYLES), idParam(req)]);
+    [texte(b.titre, 120), texte(b.legende, 3000), b.visible === undefined ? true : !!b.visible, texte(b.etiquette, 40), pick(b.filtre, FILTRES), pick(b.couleur, COULEURS), pick(b.style, STYLES), idParam(req)]);
   r.rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Photo introuvable.' });
 }));
 app.delete('/hub/admin/album/photos/:id', requireHub, ah(async (req, res) => {
