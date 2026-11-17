@@ -23,6 +23,9 @@ async function chargerReglages() {
   await pool.query('CREATE TABLE IF NOT EXISTS hub_settings (cle TEXT PRIMARY KEY, valeur JSONB NOT NULL)');
   await pool.query(`CREATE TABLE IF NOT EXISTS hub_album_photos (id SERIAL PRIMARY KEY, ordre INT NOT NULL DEFAULT 0, titre TEXT NOT NULL DEFAULT '', legende TEXT NOT NULL DEFAULT '',
     visible BOOLEAN NOT NULL DEFAULT TRUE, mime TEXT NOT NULL, donnees BYTEA NOT NULL, taille INT NOT NULL, cree_le TIMESTAMPTZ DEFAULT now(), maj TIMESTAMPTZ DEFAULT now())`);
+  for (const col of ["etiquette TEXT NOT NULL DEFAULT ''", "filtre TEXT NOT NULL DEFAULT 'aucun'", "couleur TEXT NOT NULL DEFAULT 'rouge'", "style TEXT NOT NULL DEFAULT 'tampon'"]) {
+    await pool.query(`ALTER TABLE hub_album_photos ADD COLUMN IF NOT EXISTS ${col}`);
+  }
   const { rows } = await pool.query('SELECT cle, valeur FROM hub_settings');
   for (const r of rows) {
     if (r.cle === 'annonce') reglages.annonce = { ...reglages.annonce, ...r.valeur };
@@ -218,12 +221,13 @@ app.put('/hub/admin/album/acces', requireHub, ah(async (req, res) => {
   await sauver('album_acces', { actif, hash, v });
   res.json({ protege: actif, mdp_defini: !!hash });
 }));
+const FILTRES = ['aucun', 'gris', 'sepia', 'rouge', 'sombre', 'flou', 'fantome'], COULEURS = ['rouge', 'blanc', 'or', 'bleu', 'vert'], STYLES = ['tampon', 'bandeau'];
 const idParam = (req) => { const n = Number(req.params.id); return Number.isInteger(n) ? n : -1; };
 
 app.get('/hub/album', ah(async (req, res) => {
   if (reglages.locks.album && reglages.locks.album.actif && !isHub(req)) return res.status(503).json({ error: reglages.locks.album.message || MSG_DEFAUT, maintenance: true });
   if (!accesAlbum(req)) return res.status(401).json({ error: 'Accès protégé par mot de passe.', protege: true });
-  const r = await pool.query('SELECT id, titre, legende, EXTRACT(EPOCH FROM maj)::bigint AS v FROM hub_album_photos WHERE visible ORDER BY ordre, id');
+  const r = await pool.query('SELECT id, titre, legende, etiquette, filtre, couleur, style, EXTRACT(EPOCH FROM maj)::bigint AS v FROM hub_album_photos WHERE visible ORDER BY ordre, id');
   res.json({ ...reglages.album, photos: r.rows });
 }));
 app.get('/album/img/:id', ah(async (req, res) => {
@@ -236,7 +240,7 @@ app.get('/album/img/:id', ah(async (req, res) => {
   res.send(p.donnees);
 }));
 app.get('/hub/admin/album', requireHub, ah(async (req, res) => {
-  const r = await pool.query('SELECT id, titre, legende, visible, mime, taille, EXTRACT(EPOCH FROM maj)::bigint AS v FROM hub_album_photos ORDER BY ordre, id');
+  const r = await pool.query('SELECT id, titre, legende, etiquette, filtre, couleur, style, visible, mime, taille, EXTRACT(EPOCH FROM maj)::bigint AS v FROM hub_album_photos ORDER BY ordre, id');
   res.json({ ...reglages.album, photos: r.rows, total: r.rows.reduce((a, p) => a + p.taille, 0), max: ALBUM_MAX, protege: reglages.album_acces.actif, mdp_defini: !!reglages.album_acces.hash });
 }));
 app.put('/hub/admin/album', requireHub, ah(async (req, res) => {
@@ -263,7 +267,9 @@ app.put('/hub/admin/album/ordre', requireHub, ah(async (req, res) => {
   res.json({ ok: true });
 }));
 app.put('/hub/admin/album/photos/:id', requireHub, ah(async (req, res) => {
-  const r = await pool.query('UPDATE hub_album_photos SET titre=$1, legende=$2, visible=$3 WHERE id=$4', [texte(req.body.titre, 120), texte(req.body.legende, 3000), !!req.body.visible, idParam(req)]);
+  const b = req.body, pick = (v, liste) => (liste.includes(v) ? v : liste[0]); // filtre, couleur et style : valeurs d'une liste fixe uniquement
+  const r = await pool.query('UPDATE hub_album_photos SET titre=$1, legende=$2, visible=$3, etiquette=$4, filtre=$5, couleur=$6, style=$7 WHERE id=$8',
+    [texte(b.titre, 120), texte(b.legende, 3000), !!b.visible, texte(b.etiquette, 40), pick(b.filtre, FILTRES), pick(b.couleur, COULEURS), pick(b.style, STYLES), idParam(req)]);
   r.rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Photo introuvable.' });
 }));
 app.delete('/hub/admin/album/photos/:id', requireHub, ah(async (req, res) => {
