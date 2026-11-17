@@ -2,7 +2,12 @@
 <html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow"><title>Gérer l'album</title><link rel="stylesheet" href="/assets/hub.css"><script defer src="/assets/annonce.js"></script></head>
 <body><div class="wrap">
-<div class="head"><h1>Gérer l'album</h1><div class="row"><a class="btn ghost" href="/album">Voir l'album</a><a class="btn ghost" href="/admin">← Admin</a></div></div>
+<div class="head"><h1>Gérer l'album</h1><div class="row"><a class="btn ghost" href="/album">Voir l'album</a><a class="btn ghost" id="l-admin" href="/admin" hidden>← Admin</a><button class="btn ghost" id="l-out" hidden>Déconnexion</button></div></div>
+
+<div class="panel" id="p-gest" hidden><h2>Mot de passe du gestionnaire d'album</h2>
+<p class="mut" style="margin:0 0 8px">Le gestionnaire d'album se connecte sur <b>/album-gestion</b> et ne peut modifier que l'album. Réservé à l'administrateur principal. Changer ce mot de passe déconnecte le gestionnaire.</p>
+<input id="g-pw" type="password" autocomplete="new-password" maxlength="100" placeholder="Nouveau mot de passe du gestionnaire (4 caractères minimum)">
+<div class="row"><button class="btn" id="g-save">Enregistrer</button><span class="msg" id="g-res"></span></div></div>
 
 <div class="panel"><h2>Titre et textes de la page</h2>
 <input id="at" maxlength="120" placeholder="Titre de l'album"><label class="mut">Texte du haut de la page (sous le titre)</label><textarea id="ad" maxlength="5000" placeholder="Texte affiché en haut de l'album (facultatif)"></textarea>
@@ -38,7 +43,7 @@ let photos=[];
 const opts=(l,sel)=>l.map(([v,n])=>`<option value="${v}" ${v===sel?'selected':''}>${n}</option>`).join('');
 const ro=new ResizeObserver(es=>es.forEach(e=>e.target.style.setProperty('--cw',e.contentRect.width+'px')));
 async function api(url,method,body){const r=await fetch(url,{method:method||'GET',headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined});
-  if(r.status===401){location.href='/admin';throw new Error('Session expirée')}
+  if(r.status===401){location.href='/album-gestion';throw new Error('Session expirée')}
   const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'Erreur');return d}
 const flash=(el,t)=>{el.textContent=t;setTimeout(()=>el.textContent='',3000)};
 const mo=n=>(n/1048576).toFixed(1)+' Mo';
@@ -57,7 +62,7 @@ function dessiner(){
     <button class="btn sm danger" data-a="del">Supprimer</button><span class="msg"></span></div><div class="mut">${mo(p.taille)}</div></div></div>`).join('')||'<p class="mut">Aucune photo. Ajoute-en ci-dessus.</p>';
   document.querySelectorAll('#liste .iw').forEach(e=>ro.observe(e));
 }
-async function charger(){const a=await api('/hub/admin/album');$('at').value=a.titre;$('ad').value=a.description;$('ab').value=a.bas||'';$('af').value=a.format||'4/3';$('aj').value=a.ajustement||'cover';
+async function charger(){const a=await api('/hub/admin/album');$('l-admin').hidden=!a.complet;$('l-out').hidden=!!a.complet;$('p-gest').hidden=!a.complet;$('at').value=a.titre;$('ad').value=a.description;$('ab').value=a.bas||'';$('af').value=a.format||'4/3';$('aj').value=a.ajustement||'cover';
   $('acc-on').checked=a.protege;$('acc-info').textContent=a.protege?"🔒 L'album est protégé par un mot de passe.":(a.mdp_defini?'Un mot de passe est enregistré mais la protection est désactivée.':"L'album est public : aucun mot de passe.");
   appliquer();photos=a.photos;$('stock').textContent=`${photos.length}/${a.max} photos · ${mo(a.total)} utilisés dans la base de données`;dessiner()}
 // Redimensionne côté navigateur (1920 px max) pour économiser l'espace de la base
@@ -70,7 +75,7 @@ async function compresser(f){
   return blob&&blob.size<f.size?blob:f;
 }
 async function envoyer(url,f){const b=await compresser(f);const r=await fetch(url,{method:'POST',headers:{'Content-Type':b.type||'application/octet-stream'},body:b});
-  if(r.status===401){location.href='/admin';throw new Error('Session expirée')}
+  if(r.status===401){location.href='/album-gestion';throw new Error('Session expirée')}
   const d=await r.json().catch(()=>({error:'Fichier trop volumineux (8 Mo max).'}));if(!r.ok)throw new Error(d.error||'Erreur');return d}
 async function ajouter(list){
   const fs=[...list].filter(f=>f.type.startsWith('image/'));let ok=0;
@@ -81,6 +86,8 @@ async function ajouter(list){
 $('drop').onclick=()=>$('files').click();$('files').onchange=e=>{ajouter(e.target.files);e.target.value=''};
 $('drop').ondragover=e=>{e.preventDefault();$('drop').classList.add('on')};$('drop').ondragleave=()=>$('drop').classList.remove('on');
 $('drop').ondrop=e=>{e.preventDefault();$('drop').classList.remove('on');ajouter(e.dataTransfer.files)};
+$('l-out').onclick=async()=>{await fetch('/hub/album/gestion/logout',{method:'POST'});location.href='/album-gestion'};
+$('g-save').onclick=async()=>{try{await api('/hub/admin/album/gestion-mdp','PUT',{mot_de_passe:$('g-pw').value});$('g-pw').value='';flash($('g-res'),'Enregistré.')}catch(e){flash($('g-res'),'⚠️ '+e.message)}};
 $('acc-show').onchange=e=>{$('acc-pw').type=e.target.checked?'text':'password'};
 $('acc-save').onclick=async()=>{try{await api('/hub/admin/album/acces','PUT',{actif:$('acc-on').checked,mot_de_passe:$('acc-pw').value});$('acc-pw').value='';flash($('acc-res'),'Enregistré.');await charger()}catch(e){flash($('acc-res'),'⚠️ '+e.message)}};
 $('af').onchange=$('aj').onchange=appliquer;

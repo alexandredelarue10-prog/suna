@@ -18,7 +18,7 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 // ---------- Réglages admin (en mémoire, persistés en base) ----------
 const SITES = ['police-suna', 'dojo-fuinjutsu', 'dojo-sensoriel', 'album']; // sites hébergés ici, verrouillables séparément
-const reglages = { locks: {}, annonce: { actif: false, texte: '' }, album: { titre: 'Album photo', description: '', bas: '', format: '4/3', ajustement: 'cover' }, album_acces: { actif: false, hash: '', v: 1 } };
+const reglages = { locks: {}, annonce: { actif: false, texte: '' }, album: { titre: 'Album photo', description: '', bas: '', format: '4/3', ajustement: 'cover' }, album_acces: { actif: false, hash: '', v: 1 }, album_gestion: { hash: '', v: 1 } };
 async function chargerReglages() {
   await pool.query('CREATE TABLE IF NOT EXISTS hub_settings (cle TEXT PRIMARY KEY, valeur JSONB NOT NULL)');
   await pool.query(`CREATE TABLE IF NOT EXISTS hub_album_photos (id SERIAL PRIMARY KEY, ordre INT NOT NULL DEFAULT 0, titre TEXT NOT NULL DEFAULT '', legende TEXT NOT NULL DEFAULT '',
@@ -31,6 +31,7 @@ async function chargerReglages() {
     if (r.cle === 'annonce') reglages.annonce = { ...reglages.annonce, ...r.valeur };
     else if (r.cle === 'album') reglages.album = { ...reglages.album, ...r.valeur };
     else if (r.cle === 'album_acces') reglages.album_acces = { ...reglages.album_acces, ...r.valeur };
+    else if (r.cle === 'album_gestion') reglages.album_gestion = { ...reglages.album_gestion, ...r.valeur };
     else if (r.cle.startsWith('lock:')) reglages.locks[r.cle.slice(5)] = r.valeur;
     else if (r.cle === 'maintenance' && !reglages.locks['police-suna']) reglages.locks['police-suna'] = r.valeur; // ancien réglage
   }
@@ -185,12 +186,43 @@ const lireImage = (req, res) => {
   if (!mime) { res.status(400).json({ error: 'Format non pris en charge (JPEG, PNG, WebP ou GIF).' }); return null; }
   return { buf, mime };
 };
+// Gestionnaire d'album : un compte limité à l'album, avec son propre mot de passe (hash bcrypt, jamais en clair).
+// Le compte admin principal peut le changer depuis /admin/album ; il n'ouvre AUCUNE autre fonction d'administration.
+const DEFAULT_GEST_HASH = '$2a$12$LxhjElaoRcJAmY8o81/q.OVGJbLabd/gWkR3zYHv6PXRg2FSho14W';
+const gestHash = () => reglages.album_gestion.hash || DEFAULT_GEST_HASH;
+const signGest = (exp, v) => crypto.createHmac('sha256', SECRET).update(`albumgest.${v}.${exp}`).digest('hex');
+function estGestAlbum(req) {
+  if (isHub(req)) return true;
+  const m = /(?:^|;\s*)albumgest\.sid=([^;]+)/.exec(req.headers.cookie || '');
+  if (!m) return false;
+  const [exp, sig] = decodeURIComponent(m[1]).split('.');
+  if (!exp || !sig || Number(exp) < Date.now()) return false;
+  const x = Buffer.from(sig), y = Buffer.from(signGest(exp, reglages.album_gestion.v));
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+}
+const requireAlbum = (req, res, next) => (estGestAlbum(req) ? next() : res.status(401).json({ error: 'Non connecté.' }));
+app.post('/hub/album/gestion/login', ah(async (req, res) => {
+  const cle = 'albumgest:' + req.ip;
+  if (limite(cle)) return res.status(429).json({ error: 'Trop de tentatives. Réessaie dans 15 minutes.' });
+  if (!(await bcrypt.compare(String((req.body && req.body.password) || ''), gestHash()))) { echec(cle); return res.status(401).json({ error: 'Mot de passe incorrect.' }); }
+  const duree = 7 * 24 * 60 * 60 * 1000, exp = Date.now() + duree;
+  res.cookie('albumgest.sid', `${exp}.${signGest(exp, reglages.album_gestion.v)}`, { ...cookieOpts, maxAge: duree });
+  res.json({ ok: true });
+}));
+app.post('/hub/album/gestion/logout', (req, res) => { res.clearCookie('albumgest.sid', cookieOpts); res.json({ ok: true }); });
+app.put('/hub/admin/album/gestion-mdp', requireHub, ah(async (req, res) => { // réservé à l'admin principal
+  const mdp = String((req.body && req.body.mot_de_passe) || '');
+  if (mdp.length < 4 || mdp.length > 100) return res.status(400).json({ error: 'Mot de passe : 4 à 100 caractères.' });
+  await sauver('album_gestion', { hash: await bcrypt.hash(mdp, 10), v: reglages.album_gestion.v + 1 }); // invalide les sessions existantes
+  res.json({ ok: true });
+}));
+
 // Accès par mot de passe (réglable depuis /admin/album) : cookie signé lié à la version du mot de passe,
 // donc changer le mot de passe déconnecte tous les visiteurs. Le compte admin n'en a pas besoin.
 const signAlbum = (exp, v) => crypto.createHmac('sha256', SECRET).update(`album.${v}.${exp}`).digest('hex');
 function accesAlbum(req) {
   const a = reglages.album_acces;
-  if (!a.actif || isHub(req)) return true;
+  if (!a.actif || estGestAlbum(req)) return true;
   const m = /(?:^|;\s*)album\.sid=([^;]+)/.exec(req.headers.cookie || '');
   if (!m) return false;
   const [exp, sig] = decodeURIComponent(m[1]).split('.');
@@ -208,7 +240,7 @@ app.post('/hub/album/acces', ah(async (req, res) => {
   res.cookie('album.sid', `${exp}.${signAlbum(exp, a.v)}`, { ...cookieOpts, maxAge: duree });
   res.json({ ok: true });
 }));
-app.put('/hub/admin/album/acces', requireHub, ah(async (req, res) => {
+app.put('/hub/admin/album/acces', requireAlbum, ah(async (req, res) => {
   const a = reglages.album_acces, b = req.body || {}, mdp = typeof b.mot_de_passe === 'string' ? b.mot_de_passe : '';
   let hash = a.hash, v = a.v;
   if (mdp) {
@@ -233,46 +265,46 @@ app.get('/hub/album', ah(async (req, res) => {
 app.get('/album/img/:id', ah(async (req, res) => {
   const r = await pool.query('SELECT mime, donnees, visible FROM hub_album_photos WHERE id=$1', [idParam(req)]);
   const p = r.rows[0];
-  if (!p || (!p.visible && !isHub(req))) return res.sendStatus(404);
+  if (!p || (!p.visible && !estGestAlbum(req))) return res.sendStatus(404);
   if (!accesAlbum(req)) return res.sendStatus(401);
   res.set({ 'Content-Type': p.mime, 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox",
     'Cache-Control': !p.visible ? 'private, no-store' : reglages.album_acces.actif ? 'private, max-age=86400' : 'public, max-age=31536000, immutable' }); // l'URL change (?v=) quand l'image est remplacée
   res.send(p.donnees);
 }));
-app.get('/hub/admin/album', requireHub, ah(async (req, res) => {
+app.get('/hub/admin/album', requireAlbum, ah(async (req, res) => {
   const r = await pool.query('SELECT id, titre, legende, etiquette, filtre, couleur, style, visible, mime, taille, EXTRACT(EPOCH FROM maj)::bigint AS v FROM hub_album_photos ORDER BY ordre, id');
-  res.json({ ...reglages.album, photos: r.rows, total: r.rows.reduce((a, p) => a + p.taille, 0), max: ALBUM_MAX, protege: reglages.album_acces.actif, mdp_defini: !!reglages.album_acces.hash });
+  res.json({ ...reglages.album, photos: r.rows, total: r.rows.reduce((a, p) => a + p.taille, 0), max: ALBUM_MAX, complet: isHub(req), protege: reglages.album_acces.actif, mdp_defini: !!reglages.album_acces.hash });
 }));
-app.put('/hub/admin/album', requireHub, ah(async (req, res) => {
+app.put('/hub/admin/album', requireAlbum, ah(async (req, res) => {
   const FORMATS = ['1/1', '4/3', '16/9', '3/4'], AJUST = ['cover', 'contain'];
   await sauver('album', { titre: texte(req.body.titre, 120) || 'Album photo', description: texte(req.body.description, 5000), bas: texte(req.body.bas, 5000),
     format: FORMATS.includes(req.body.format) ? req.body.format : '4/3', ajustement: AJUST.includes(req.body.ajustement) ? req.body.ajustement : 'cover' });
   res.json(reglages.album);
 }));
-app.post('/hub/admin/album/photos', requireHub, rawImg, ah(async (req, res) => {
+app.post('/hub/admin/album/photos', requireAlbum, rawImg, ah(async (req, res) => {
   const img = lireImage(req, res); if (!img) return;
   if ((await pool.query('SELECT COUNT(*)::int AS n FROM hub_album_photos')).rows[0].n >= ALBUM_MAX) return res.status(400).json({ error: `Limite de ${ALBUM_MAX} photos atteinte.` });
   const r = await pool.query('INSERT INTO hub_album_photos (ordre, mime, donnees, taille) VALUES ((SELECT COALESCE(MAX(ordre), 0) + 1 FROM hub_album_photos), $1, $2, $3) RETURNING id', [img.mime, img.buf, img.buf.length]);
   res.json({ id: r.rows[0].id });
 }));
-app.post('/hub/admin/album/photos/:id/image', requireHub, rawImg, ah(async (req, res) => {
+app.post('/hub/admin/album/photos/:id/image', requireAlbum, rawImg, ah(async (req, res) => {
   const img = lireImage(req, res); if (!img) return;
   const r = await pool.query('UPDATE hub_album_photos SET mime=$1, donnees=$2, taille=$3, maj=now() WHERE id=$4', [img.mime, img.buf, img.buf.length, idParam(req)]);
   r.rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Photo introuvable.' });
 }));
-app.put('/hub/admin/album/ordre', requireHub, ah(async (req, res) => {
+app.put('/hub/admin/album/ordre', requireAlbum, ah(async (req, res) => {
   const ids = Array.isArray(req.body.ids) ? req.body.ids.map(Number).filter(Number.isInteger) : [];
   if (!ids.length || ids.length > ALBUM_MAX) return res.status(400).json({ error: 'Ordre invalide.' });
   await pool.query('WITH t AS (SELECT id, ord FROM unnest($1::int[]) WITH ORDINALITY AS u(id, ord)) UPDATE hub_album_photos p SET ordre = t.ord FROM t WHERE p.id = t.id', [ids]);
   res.json({ ok: true });
 }));
-app.put('/hub/admin/album/photos/:id', requireHub, ah(async (req, res) => {
+app.put('/hub/admin/album/photos/:id', requireAlbum, ah(async (req, res) => {
   const b = req.body, pick = (v, liste) => (liste.includes(v) ? v : liste[0]); // filtre, couleur et style : valeurs d'une liste fixe uniquement
   const r = await pool.query('UPDATE hub_album_photos SET titre=$1, legende=$2, visible=$3, etiquette=$4, filtre=$5, couleur=$6, style=$7 WHERE id=$8',
     [texte(b.titre, 120), texte(b.legende, 3000), b.visible === undefined ? true : !!b.visible, texte(b.etiquette, 40), pick(b.filtre, FILTRES), pick(b.couleur, COULEURS), pick(b.style, STYLES), idParam(req)]);
   r.rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Photo introuvable.' });
 }));
-app.delete('/hub/admin/album/photos/:id', requireHub, ah(async (req, res) => {
+app.delete('/hub/admin/album/photos/:id', requireAlbum, ah(async (req, res) => {
   await pool.query('DELETE FROM hub_album_photos WHERE id=$1', [idParam(req)]); res.json({ ok: true });
 }));
 
@@ -281,7 +313,8 @@ app.use('/assets', express.static(path.join(__dirname, 'hub', 'public', 'assets'
 const page = (f) => path.join(__dirname, 'hub', 'public', f);
 app.get('/', (req, res) => res.sendFile(page('index.html')));
 app.get('/album', (req, res) => res.sendFile(page(accesAlbum(req) ? 'album.html' : 'album-acces.html')));
-app.get('/admin/album', (req, res) => (isHub(req) ? res.sendFile(page('admin-album.html')) : res.redirect('/admin')));
+app.get('/admin/album', (req, res) => (estGestAlbum(req) ? res.sendFile(page('admin-album.html')) : res.redirect('/album-gestion')));
+app.get('/album-gestion', (req, res) => (estGestAlbum(req) ? res.redirect('/admin/album') : res.sendFile(page('album-gestion.html'))));
 app.get('/admin', (req, res) => res.sendFile(page(isHub(req) ? 'admin.html' : 'login.html')));
 app.use((req, res) => res.redirect('/'));
 app.use((err, req, res, next) => { // jamais de pile d'erreur ni de chemin serveur dans la réponse
