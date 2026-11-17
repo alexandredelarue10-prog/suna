@@ -18,7 +18,7 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 // ---------- Réglages admin (en mémoire, persistés en base) ----------
 const SITES = ['police-suna', 'dojo-fuinjutsu', 'dojo-sensoriel', 'album']; // sites hébergés ici, verrouillables séparément
-const reglages = { locks: {}, annonce: { actif: false, texte: '' }, album: { titre: 'Album photo', description: '', bas: '', format: '4/3', ajustement: 'cover' }, album_acces: { actif: false, hash: '', v: 1 }, album_gestion: { hash: '', v: 1 } };
+const reglages = { locks: {}, annonce: { actif: false, texte: '' }, album: { titre: 'Album photo', description: '', bas: '', format: '4/3', ajustement: 'cover' }, album_acces: { actif: false, hash: '', v: 1, message: '' }, album_gestion: { hash: '', v: 1 } };
 async function chargerReglages() {
   await pool.query('CREATE TABLE IF NOT EXISTS hub_settings (cle TEXT PRIMARY KEY, valeur JSONB NOT NULL)');
   await pool.query(`CREATE TABLE IF NOT EXISTS hub_album_photos (id SERIAL PRIMARY KEY, ordre INT NOT NULL DEFAULT 0, titre TEXT NOT NULL DEFAULT '', legende TEXT NOT NULL DEFAULT '',
@@ -240,6 +240,10 @@ app.post('/hub/album/acces', ah(async (req, res) => {
   res.cookie('album.sid', `${exp}.${signAlbum(exp, a.v)}`, { ...cookieOpts, maxAge: duree });
   res.json({ ok: true });
 }));
+app.get('/hub/album/acces-info', (req, res) => { // message affiché sous le champ mot de passe (public, seulement si la protection est active)
+  const a = reglages.album_acces;
+  res.json(a.actif && a.message ? { message: a.message } : {});
+});
 app.put('/hub/admin/album/acces', requireAlbum, ah(async (req, res) => {
   const a = reglages.album_acces, b = req.body || {}, mdp = typeof b.mot_de_passe === 'string' ? b.mot_de_passe : '';
   let hash = a.hash, v = a.v;
@@ -250,7 +254,8 @@ app.put('/hub/admin/album/acces', requireAlbum, ah(async (req, res) => {
   const actif = !!b.actif;
   if (actif && !hash) return res.status(400).json({ error: 'Choisis un mot de passe pour activer la protection.' });
   if (mdp || (actif && !a.actif)) v = a.v + 1; // invalide les accès déjà accordés
-  await sauver('album_acces', { actif, hash, v });
+  const message = b.message === undefined ? (a.message || '') : texte(b.message, 300);
+  await sauver('album_acces', { actif, hash, v, message });
   res.json({ protege: actif, mdp_defini: !!hash });
 }));
 const FILTRES = ['aucun', 'gris', 'sepia', 'rouge', 'sombre', 'flou', 'fantome'], COULEURS = ['rouge', 'blanc', 'or', 'bleu', 'vert'], STYLES = ['tampon', 'bandeau', 'symbole'];
@@ -273,7 +278,7 @@ app.get('/album/img/:id', ah(async (req, res) => {
 }));
 app.get('/hub/admin/album', requireAlbum, ah(async (req, res) => {
   const r = await pool.query('SELECT id, titre, legende, etiquette, filtre, couleur, style, visible, mime, taille, EXTRACT(EPOCH FROM maj)::bigint AS v FROM hub_album_photos ORDER BY ordre, id');
-  res.json({ ...reglages.album, photos: r.rows, total: r.rows.reduce((a, p) => a + p.taille, 0), max: ALBUM_MAX, complet: isHub(req), protege: reglages.album_acces.actif, mdp_defini: !!reglages.album_acces.hash });
+  res.json({ ...reglages.album, photos: r.rows, total: r.rows.reduce((a, p) => a + p.taille, 0), max: ALBUM_MAX, complet: isHub(req), protege: reglages.album_acces.actif, mdp_defini: !!reglages.album_acces.hash, acces_message: reglages.album_acces.message || '' });
 }));
 app.put('/hub/admin/album', requireAlbum, ah(async (req, res) => {
   const FORMATS = ['1/1', '4/3', '16/9', '3/4'], AJUST = ['cover', 'contain'];

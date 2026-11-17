@@ -21,6 +21,7 @@
 <div class="panel"><h2>Accès par mot de passe</h2><p class="mut" id="acc-info" style="margin:0 0 8px"></p>
 <div class="row"><label><input type="checkbox" id="acc-on" style="width:auto"> Protéger l'album : les visiteurs doivent entrer le mot de passe</label></div>
 <input id="acc-pw" type="password" autocomplete="new-password" maxlength="100" placeholder="Nouveau mot de passe (laisse vide pour garder l'actuel)">
+<label class="mut">Petit message sous le champ mot de passe (facultatif)</label><textarea id="acc-msg" maxlength="300" style="min-height:60px" placeholder="Ex. : Demande le mot de passe à Lexoui sur Discord"></textarea>
 <div class="row"><label><input type="checkbox" id="acc-show" style="width:auto"> Afficher</label><button class="btn" id="acc-save">Enregistrer</button><span class="msg" id="acc-res"></span></div>
 <p class="mut" style="margin:8px 0 0">Toi, connecté à l'admin, tu n'as pas besoin du mot de passe. Changer le mot de passe déconnecte tous les visiteurs.</p></div>
 
@@ -63,7 +64,7 @@ function dessiner(){
   document.querySelectorAll('#liste .iw').forEach(e=>ro.observe(e));
 }
 async function charger(){const a=await api('/hub/admin/album');$('l-admin').hidden=!a.complet;$('l-out').hidden=!!a.complet;$('p-gest').hidden=!a.complet;$('at').value=a.titre;$('ad').value=a.description;$('ab').value=a.bas||'';$('af').value=a.format||'4/3';$('aj').value=a.ajustement||'cover';
-  $('acc-on').checked=a.protege;$('acc-info').textContent=a.protege?"🔒 L'album est protégé par un mot de passe.":(a.mdp_defini?'Un mot de passe est enregistré mais la protection est désactivée.':"L'album est public : aucun mot de passe.");
+  $('acc-on').checked=a.protege;$('acc-msg').value=a.acces_message||'';$('acc-info').textContent=a.protege?"🔒 L'album est protégé par un mot de passe.":(a.mdp_defini?'Un mot de passe est enregistré mais la protection est désactivée.':"L'album est public : aucun mot de passe.");
   appliquer();photos=a.photos;$('stock').textContent=`${photos.length}/${a.max} photos · ${mo(a.total)} utilisés dans la base de données`;dessiner()}
 // Redimensionne côté navigateur (1920 px max) pour économiser l'espace de la base
 async function compresser(f){
@@ -89,7 +90,7 @@ $('drop').ondrop=e=>{e.preventDefault();$('drop').classList.remove('on');ajouter
 $('l-out').onclick=async()=>{await fetch('/hub/album/gestion/logout',{method:'POST'});location.href='/album-gestion'};
 $('g-save').onclick=async()=>{try{await api('/hub/admin/album/gestion-mdp','PUT',{mot_de_passe:$('g-pw').value});$('g-pw').value='';flash($('g-res'),'Enregistré.')}catch(e){flash($('g-res'),'⚠️ '+e.message)}};
 $('acc-show').onchange=e=>{$('acc-pw').type=e.target.checked?'text':'password'};
-$('acc-save').onclick=async()=>{try{await api('/hub/admin/album/acces','PUT',{actif:$('acc-on').checked,mot_de_passe:$('acc-pw').value});$('acc-pw').value='';flash($('acc-res'),'Enregistré.');await charger()}catch(e){flash($('acc-res'),'⚠️ '+e.message)}};
+$('acc-save').onclick=async()=>{try{await api('/hub/admin/album/acces','PUT',{actif:$('acc-on').checked,mot_de_passe:$('acc-pw').value,message:$('acc-msg').value});$('acc-pw').value='';flash($('acc-res'),'Enregistré.');await charger()}catch(e){flash($('acc-res'),'⚠️ '+e.message)}};
 $('af').onchange=$('aj').onchange=appliquer;
 $('a-save').onclick=async()=>{try{await api('/hub/admin/album','PUT',{titre:$('at').value,description:$('ad').value,bas:$('ab').value,format:$('af').value,ajustement:$('aj').value});flash($('a-res'),'Enregistré.')}catch(e){flash($('a-res'),'⚠️ '+e.message)}};
 async function ordre(){await api('/hub/admin/album/ordre','PUT',{ids:photos.map(p=>p.id)})}
