@@ -11,9 +11,9 @@
 <div class="nav"><button class="btn ghost" id="prev">←</button><button class="btn ghost" id="close">Fermer</button><button class="btn ghost" id="next">→</button></div></div>
 <script>
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const F=['aucun','gris','sepia','rouge','sombre','flou','fantome'],C=['rouge','blanc','or','bleu','vert'],S=['tampon','bandeau'];
+const F=['aucun','gris','sepia','rouge','sombre','flou','fantome'],C=['rouge','blanc','or','bleu','vert'],S=['tampon','bandeau','symbole'];
 const fcl=p=>'f-'+(F.includes(p.filtre)?p.filtre:'aucun');
-const stamp=p=>p.etiquette?`<span class="st st-${S.includes(p.style)?p.style:'tampon'} c-${C.includes(p.couleur)?p.couleur:'rouge'}">${esc(p.etiquette)}</span>`:'';
+const stamp=p=>p.etiquette?`<span class="st st-${S.includes(p.style)?p.style:'tampon'} c-${C.includes(p.couleur)?p.couleur:'rouge'}" style="--n:${[...p.etiquette].length}">${esc(p.etiquette)}</span>`:'';
 const ro=new ResizeObserver(es=>es.forEach(e=>e.target.style.setProperty('--cw',e.contentRect.width+'px')));
 let photos=[],cur=0;
 const src=p=>`/album/img/${p.id}?v=${p.v}`;

@@ -31,9 +31,9 @@ const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const FILTRES=[['aucun','Aucun filtre'],['gris','Noir et blanc'],['sepia','Sépia'],['rouge','Teinte rouge'],['sombre','Assombri'],['flou','Flou'],['fantome','Fantôme (gris + flou)']];
 const COULEURS=[['rouge','Rouge'],['blanc','Blanc'],['or','Or'],['bleu','Bleu'],['vert','Vert']];
-const STYLES=[['tampon','Tampon en diagonale'],['bandeau','Bandeau en bas']];
+const STYLES=[['tampon','Tampon en diagonale'],['bandeau','Bandeau en bas'],['symbole','Symbole (texte seul, très grand)']];
 // Préréglages en un clic : modifiables ensuite champ par champ
-const PRESETS={mort:{etiquette:'MORT',filtre:'gris',couleur:'rouge',style:'tampon'},disparu:{etiquette:'DISPARU',filtre:'fantome',couleur:'or',style:'tampon'},aucun:{etiquette:'',filtre:'aucun',couleur:'rouge',style:'tampon'}};
+const PRESETS={mort:{etiquette:'MORT',filtre:'gris',couleur:'rouge',style:'tampon'},disparu:{etiquette:'DISPARU',filtre:'fantome',couleur:'or',style:'tampon'},interro:{etiquette:'?',filtre:'aucun',couleur:'blanc',style:'symbole'},aucun:{etiquette:'',filtre:'aucun',couleur:'rouge',style:'tampon'}};
 let photos=[];
 const opts=(l,sel)=>l.map(([v,n])=>`<option value="${v}" ${v===sel?'selected':''}>${n}</option>`).join('');
 const ro=new ResizeObserver(es=>es.forEach(e=>e.target.style.setProperty('--cw',e.contentRect.width+'px')));
@@ -43,12 +43,12 @@ async function api(url,method,body){const r=await fetch(url,{method:method||'GET
 const flash=(el,t)=>{el.textContent=t;setTimeout(()=>el.textContent='',3000)};
 const mo=n=>(n/1048576).toFixed(1)+' Mo';
 function appliquer(){const l=$('liste');l.style.setProperty('--ratio',$('af').value);l.dataset.fit=$('aj').value}
-const stamp=(e,c,s)=>e?`<span class="st st-${s} c-${c}">${esc(e)}</span>`:'';
+const stamp=(e,c,s)=>e?`<span class="st st-${s} c-${c}" style="--n:${[...e].length}">${esc(e)}</span>`:'';
 function dessiner(){
   $('liste').innerHTML=photos.map((p,i)=>`<div class="panel ph" data-id="${p.id}"><div class="iw"><img class="f-${p.filtre}" src="/album/img/${p.id}?v=${p.v}" alt="">${stamp(p.etiquette,p.couleur,p.style)}</div>
     <div class="f"><input class="p-t" maxlength="120" placeholder="Titre (facultatif)" value="${esc(p.titre)}"><textarea class="p-l" maxlength="3000" placeholder="Texte sous l'image">${esc(p.legende)}</textarea>
     <div class="mut" style="margin:2px 0 6px">Étiquette et filtre sur l'image</div>
-    <div class="row" style="margin-bottom:8px"><button class="btn sm ghost" data-a="preset" data-p="mort">☠ Mort</button><button class="btn sm ghost" data-a="preset" data-p="disparu">? Disparu</button><button class="btn sm ghost" data-a="preset" data-p="aucun">Aucun effet</button></div>
+    <div class="row" style="margin-bottom:8px"><button class="btn sm ghost" data-a="preset" data-p="mort">☠ Mort</button><button class="btn sm ghost" data-a="preset" data-p="disparu">👻 Disparu</button><button class="btn sm ghost" data-a="preset" data-p="interro">❓ Point d'interrogation</button><button class="btn sm ghost" data-a="preset" data-p="aucun">Aucun effet</button></div>
     <input class="p-e" maxlength="40" placeholder="Texte sur l'image (ex. MORT, DISPARU, EN FUITE…)" value="${esc(p.etiquette)}">
     <div class="row" style="margin-bottom:10px"><select class="p-fi" title="Filtre">${opts(FILTRES,p.filtre)}</select><select class="p-c" title="Couleur du texte">${opts(COULEURS,p.couleur)}</select><select class="p-s" title="Style du texte">${opts(STYLES,p.style)}</select></div>
     <div class="row"><label><input type="checkbox" class="p-v" ${p.visible?'checked':''} style="width:auto"> Visible</label><button class="btn sm" data-a="save">Enregistrer</button>

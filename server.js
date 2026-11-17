@@ -221,7 +221,7 @@ app.put('/hub/admin/album/acces', requireHub, ah(async (req, res) => {
   await sauver('album_acces', { actif, hash, v });
   res.json({ protege: actif, mdp_defini: !!hash });
 }));
-const FILTRES = ['aucun', 'gris', 'sepia', 'rouge', 'sombre', 'flou', 'fantome'], COULEURS = ['rouge', 'blanc', 'or', 'bleu', 'vert'], STYLES = ['tampon', 'bandeau'];
+const FILTRES = ['aucun', 'gris', 'sepia', 'rouge', 'sombre', 'flou', 'fantome'], COULEURS = ['rouge', 'blanc', 'or', 'bleu', 'vert'], STYLES = ['tampon', 'bandeau', 'symbole'];
 const idParam = (req) => { const n = Number(req.params.id); return Number.isInteger(n) ? n : -1; };
 
 app.get('/hub/album', ah(async (req, res) => {

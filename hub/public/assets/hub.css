@@ -54,4 +54,5 @@ table{width:100%;border-collapse:collapse;font-size:14px;margin-top:10px}td,th{t
 .st{position:absolute;z-index:2;font-family:Oswald,'Arial Narrow',sans-serif;font-weight:700;text-transform:uppercase;letter-spacing:.08em;line-height:1.1;text-align:center;pointer-events:none;color:var(--sc,#e04545);overflow-wrap:anywhere}
 .st-tampon{left:50%;top:50%;transform:translate(-50%,-50%) rotate(-14deg);max-width:88%;font-size:calc(var(--cw,240px)*.13);padding:.12em .4em;border:.09em solid currentColor;border-radius:.15em;background:rgba(0,0,0,.38);text-shadow:0 0 .2em rgba(0,0,0,.6);opacity:.94}
 .st-bandeau{left:0;right:0;bottom:0;font-size:calc(var(--cw,240px)*.07);padding:.35em .5em;background:rgba(0,0,0,.68);border-top:.12em solid currentColor}
+.st-symbole{left:50%;top:50%;transform:translate(-50%,-50%);max-width:96%;white-space:nowrap;font-size:calc(var(--cw,240px)*min(.55,1.1/var(--n,1)));line-height:1;text-transform:none;text-shadow:0 .03em .18em rgba(0,0,0,.85),0 0 .5em rgba(0,0,0,.5);opacity:.95}
 .c-rouge{--sc:#e04545}.c-blanc{--sc:#fff}.c-or{--sc:#e5c15a}.c-bleu{--sc:#59b2ee}.c-vert{--sc:#69c97a}
